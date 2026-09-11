@@ -1,0 +1,57 @@
+# ── Datasets & large binary files ─────────────────────────────────────────────
+data/cnn-libras/
+data/personal/
+
+# ── Trained models ────────────────────────────────────────────────────────────
+models/
+*.pkl
+*.pt
+*.pth
+*.onnx
+*.h5
+*.keras
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── Environment & secrets ─────────────────────────────────────────────────────
+.env
+.envrc
+*.env.*
+
+# ── IDE & OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Documentation machine-readable indexes (KEEP tracked) ─────────────────────
+# docs/.digest.md and docs/.graph.json are intentionally tracked.
+# Do NOT add them here.
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak
