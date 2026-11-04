@@ -4,29 +4,28 @@ domain: testing
 stack: [pytest, scikit-learn, opencv-python, mediapipe]
 node_id: "adr:tests"
 tags: [testing, unit-tests, validation, accuracy]
-edges:
-  - relation: references
-    target: "adr:architecture"
-updated: 2026-09-10
+edges: []
+updated: 2026-11-04
 ---
 # Testing Protocol
 
 ## OVERVIEW
 
-Class project — functional correctness is the primary quality goal. No automated CI pipeline. Tests focus on data-pipeline integrity, model accuracy on held-out test sets, and visual validation of the live demo.
+`src/test_landmark_svm.py` covers landmark loading, wrist normalization, and SVM evaluation; `src/test_demo.py` covers prediction, no-hand frames, and webcam resource cleanup. No CI configuration is present; the local environment has no pytest installation.
 
 ## COMMANDS
 
-| Type | Command | Description |
+| Type | Command | Status |
 |---|---|---|
-| Unit | `pytest src/` | Runs unit tests for shared utility functions in `src/` |
-| Model accuracy (Phase A) | `python -m pytest notebooks/ -k svm` | Evaluates SVM on the held-out test split |
-| Manual visual | `python demo.py` | Live webcam smoke-test — verify HUD renders and predictions are plausible |
-| Coverage | `pytest --cov=src --cov-report=term-missing src/` | Coverage report for `src/` utilities |
+| Unit | `.venv/bin/python -m unittest discover -s src -p 'test_*.py' -v` | Verified local runner |
+| Project guidance | `pytest src/` | Listed in `AGENTS.md`; pytest is not installed in the current virtualenv |
+| Model accuracy (Phase A) | `notebooks/02_landmarks_svm.ipynb` | Run notebook cells; evaluation uses a stratified 20% holdout |
+| Manual visual | `python demo.py` | Implemented; requires a webcam and saved model artifact |
+| Coverage | `pytest --cov=src --cov-report=term-missing src/` | Listed in `AGENTS.md`; pytest-cov is not declared or installed |
 
 ## MINIMUM COVERAGE
 
-REQUIRED: Maintain the following minimum coverage levels for `src/` utility code:
+The following are **targets stated in `AGENTS.md`**, not configured gates or measured results:
 
 | Layer | Coverage | Description |
 |---|---|---|
@@ -37,7 +36,7 @@ REQUIRED: Maintain the following minimum coverage levels for `src/` utility code
 ## PATTERNS & BEST PRACTICES
 
 REQUIRED: Use Arrange-Act-Assert (AAA) structure in every unit test.
-REQUIRED: Mock `cv2.VideoCapture` and `mediapipe.solutions.hands.Hands` in tests that exercise collection or inference logic — never open a real camera in automated tests.
+REQUIRED: Mock `cv2.VideoCapture` and `mp.tasks.vision.HandLandmarker` in automated tests; never open a real camera.
 REQUIRED: Evaluate model accuracy on a stratified held-out split (20% of total samples per class).
 REQUIRED: Report per-class accuracy via confusion matrix for the class report.
 FORBIDDEN: Hardcoding expected pixel values or landmark coordinates as test assertions — use tolerance-based comparisons (`numpy.testing.assert_allclose`).
@@ -45,21 +44,18 @@ FORBIDDEN: Tests that depend on execution order or share mutable global state.
 
 ## TOOLING
 
-- **Framework:** pytest >= 7.4
+- **Framework:** Python `unittest` in the current suite; pytest also named in `AGENTS.md`
 - **Assertions:** pytest built-in + `numpy.testing`
-- **Mocks/Stubs:** `unittest.mock.patch` for OpenCV and MediaPipe
-- **Coverage:** `pytest-cov`; report format: `term-missing`
-- **CI Integration:** None — run tests manually before each submission checkpoint
+- **Mocks/Stubs:** `unittest.mock` for OpenCV and MediaPipe Tasks
+- **Coverage:** pytest-cov command documented in `AGENTS.md`; not declared in `requirements.txt`
+- **CI Integration:** No CI configuration found
 
 ## TROUBLESHOOTING
 
 - **Camera not opening in tests:** Confirm `cv2.VideoCapture` is patched; real camera access is PROHIBITED in automated tests.
-- **MediaPipe import errors:** Verify `mediapipe>=0.10.0` is installed in the active venv (`pip show mediapipe`).
-- **Debug mode:** `pytest -s -v src/` — shows stdout and verbose test names.
-
-<!-- DOCUMENT MAP: omitted — this baseline ADR has exactly 1 edge. -->
+- **MediaPipe import errors:** Install dependencies from `requirements.txt`; collector uses `mp.tasks`.
+- **Debug mode:** `pytest -s -v src/` is documented in `AGENTS.md`; it requires the planned `src/` tests.
 
 ## REFERENCES
 
 - [**README.md**](../README.md): Main documentation index.
-- [**ARCHITECTURE.md**](./ARCHITECTURE.md): System architecture and patterns.

@@ -6,10 +6,13 @@ Real-time Brazilian Sign Language (LIBRAS) static alphabet recognizer using Pyth
 
 | Phase | Approach | Status |
 |---|---|---|
-| A | MediaPipe hand landmarks → SVM | 🔜 In progress |
+| A | MediaPipe hand landmarks → SVM | Implemented; latest personal-data run reached 96.67% holdout accuracy and 0.9666 macro-F1 on 1,050 samples |
 | C | MediaPipe crop → EfficientNet-B0 (Colab) | ⏳ Planned |
 
 ## Setup
+
+Collector uses the MediaPipe Tasks Hand Landmarker API. On first run, it downloads the model to `~/.cache/libras-recognition/`.
+Each successful capture saves a clean hand crop and paired raw landmark JSON sidecar.
 
 ```bash
 python -m venv .venv
@@ -38,15 +41,19 @@ kaggle datasets download -d williansoliveira/cnn-libras -p data/cnn-libras --unz
 
 | Notebook | Description |
 |---|---|
-| `notebooks/01_exploration.ipynb` | EDA, sample visualization |
-| `notebooks/02_landmarks_svm.ipynb` | Phase A: landmark extraction + SVM |
-| `notebooks/03_cnn_efficientnet.ipynb` | Phase C: EfficientNet fine-tuning (run on Colab) |
+| `notebooks/01_exploration.ipynb` | Planned; file not present |
+| `notebooks/02_landmarks_svm.ipynb` | Phase A landmark extraction, evaluation, and SVM training |
+| `notebooks/03_cnn_efficientnet.ipynb` | Planned for Colab; file not present |
 
 ## Live Demo
+
+Run the saved Phase A model from a webcam:
 
 ```bash
 python demo.py
 ```
+
+Use `--camera 1` to select another camera. Press `q` or `Esc` to quit. The model must exist at `models/svm_model.pkl`; the MediaPipe task model is cached under `~/.cache/libras-recognition/`.
 
 ## Letters Covered
 

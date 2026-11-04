@@ -10,39 +10,84 @@ Controls:
   q       → quit immediately
 
 Output:
-  data/personal/<LETTER>/frame_XXXX.jpg  (hand crop, or full frame fallback)
+  data/personal/<LETTER>/frame_XXXX.jpg           (clean hand crop)
+  data/personal/<LETTER>/frame_XXXX.landmarks.json (raw MediaPipe landmarks)
 """
 
-import cv2
 import mediapipe as mp
+import cv2
 import os
 import sys
 import time
+import urllib.request
+from pathlib import Path
+
+from src.landmark_svm import save_landmark_points
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 # LIBRAS static alphabet (J and Z require motion — Phase 2)
-LETTERS = list("ABCDEFGHILMNOPRSTU VWY")
-LETTERS = [l for l in LETTERS if l.strip()]
+LETTERS = list("ABCDEFGILMNOPQRSTUVWY")
 
 SAMPLES_PER_LETTER = 50          # target frames per letter
 CROP_PADDING       = 30          # pixels of padding around the detected hand bbox
-OUTPUT_DIR         = os.path.join("data", "personal")
+OUTPUT_DIR         = os.path.join("data", "personal-updated")
 CAMERA_INDEX       = 0           # change to 1, 2… if default webcam is wrong
 
 # ── MediaPipe setup ────────────────────────────────────────────────────────────
 
-mp_hands        = mp.solutions.hands
-mp_drawing      = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
+HAND_LANDMARKER_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
+    "hand_landmarker/float16/1/hand_landmarker.task"
+)
+HAND_LANDMARKER_MODEL_PATH = (
+    Path.home() / ".cache" / "libras-recognition" / "hand_landmarker.task"
+)
+HAND_CONNECTIONS = (
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (0, 17), (17, 18), (18, 19), (19, 20),
+)
+
+
+def ensure_hand_landmarker_model() -> str:
+    """Download the MediaPipe Tasks model to the user cache when missing."""
+    if not HAND_LANDMARKER_MODEL_PATH.is_file():
+        HAND_LANDMARKER_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = HAND_LANDMARKER_MODEL_PATH.with_suffix(".task.download")
+        try:
+            urllib.request.urlretrieve(HAND_LANDMARKER_MODEL_URL, temporary_path)
+            temporary_path.replace(HAND_LANDMARKER_MODEL_PATH)
+        except Exception as error:
+            temporary_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                "Could not download the MediaPipe hand model. Check your internet "
+                f"connection or download it to {HAND_LANDMARKER_MODEL_PATH}."
+            ) from error
+    return str(HAND_LANDMARKER_MODEL_PATH)
+
+
+def draw_hand_landmarks(frame, hand_landmarks):
+    """Draw hand landmark points and connections onto the frame."""
+    height, width = frame.shape[:2]
+    points = [
+        (int(landmark.x * width), int(landmark.y * height))
+        for landmark in hand_landmarks
+    ]
+    for start, end in HAND_CONNECTIONS:
+        cv2.line(frame, points[start], points[end], (0, 200, 0), 2)
+    for point in points:
+        cv2.circle(frame, point, 4, (0, 0, 255), -1)
 
 
 def get_hand_crop(frame, hand_landmarks, padding: int = CROP_PADDING):
     """Return a cropped region around the detected hand (with padding).
-    Falls back to the full frame if the bbox is degenerate."""
+    Returns None if the bbox is degenerate."""
     h, w = frame.shape[:2]
-    xs = [lm.x * w for lm in hand_landmarks.landmark]
-    ys = [lm.y * h for lm in hand_landmarks.landmark]
+    xs = [lm.x * w for lm in hand_landmarks]
+    ys = [lm.y * h for lm in hand_landmarks]
 
     x_min = max(0, int(min(xs)) - padding)
     y_min = max(0, int(min(ys)) - padding)
@@ -50,7 +95,7 @@ def get_hand_crop(frame, hand_landmarks, padding: int = CROP_PADDING):
     y_max = min(h, int(max(ys)) + padding)
 
     if x_max <= x_min or y_max <= y_min:
-        return frame  # degenerate bbox → full frame fallback
+        return None
 
     return frame[y_min:y_max, x_min:x_max]
 
@@ -85,7 +130,7 @@ def draw_overlay(frame, letter: str, captured: int, target: int, hand_detected: 
                 (15, h - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1, cv2.LINE_AA)
 
 
-def collect_letter(cap, hands, letter: str, out_dir: str, target: int) -> bool:
+def collect_letter(cap, hand_landmarker, letter: str, out_dir: str, target: int) -> bool:
     """Interactive capture loop for one letter.
     Returns True → next letter, False → quit."""
     os.makedirs(out_dir, exist_ok=True)
@@ -93,6 +138,7 @@ def collect_letter(cap, hands, letter: str, out_dir: str, target: int) -> bool:
     existing   = [f for f in os.listdir(out_dir) if f.startswith("frame_") and f.endswith(".jpg")]
     frame_idx  = len(existing)
     captured   = 0
+    last_timestamp_ms = 0
 
     print(f"\n── Letter '{letter}' ──  target: {target}  (already have: {frame_idx})")
     print("   Show your hand and press SPACE to capture.")
@@ -104,19 +150,18 @@ def collect_letter(cap, hands, letter: str, out_dir: str, target: int) -> bool:
             return False
 
         frame   = cv2.flip(frame, 1)          # mirror for natural signing view
+        capture_frame = frame.copy()
         rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(rgb)
+        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        timestamp_ms = max(int(time.monotonic() * 1000), last_timestamp_ms + 1)
+        last_timestamp_ms = timestamp_ms
+        results = hand_landmarker.detect_for_video(image, timestamp_ms)
 
-        hand_detected = results.multi_hand_landmarks is not None
+        hand_detected = bool(results.hand_landmarks)
 
         if hand_detected:
-            for lm in results.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(
-                    frame, lm,
-                    mp_hands.HAND_CONNECTIONS,
-                    mp_drawing_styles.get_default_hand_landmarks_style(),
-                    mp_drawing_styles.get_default_hand_connections_style(),
-                )
+            for landmarks in results.hand_landmarks:
+                draw_hand_landmarks(frame, landmarks)
 
         draw_overlay(frame, letter, captured, target, hand_detected)
         cv2.imshow("LIBRAS Data Collector", frame)
@@ -144,9 +189,24 @@ def collect_letter(cap, hands, letter: str, out_dir: str, target: int) -> bool:
             continue
 
         if key == ord(" "):
-            crop = get_hand_crop(frame, results.multi_hand_landmarks[0]) if hand_detected else frame
+            if not hand_detected:
+                print("   No hand detected — frame not saved.")
+                continue
+
+            crop = get_hand_crop(capture_frame, results.hand_landmarks[0])
+            if crop is None:
+                print("   Hand crop is empty — frame not saved.")
+                continue
+
             save_path = os.path.join(out_dir, f"frame_{frame_idx:04d}.jpg")
-            cv2.imwrite(save_path, crop)
+            if not cv2.imwrite(save_path, crop):
+                print(f"   Could not save {save_path}.")
+                continue
+            try:
+                save_landmark_points(save_path, results.hand_landmarks[0])
+            except Exception:
+                os.remove(save_path)
+                raise
             captured  += 1
             frame_idx += 1
             print(f"   Saved {save_path}  [{captured}/{target}]")
@@ -208,18 +268,22 @@ def main():
         print(f"[ERROR] '{start_letter}' not in letter list: {LETTERS}")
         sys.exit(1)
 
+    model_path = ensure_hand_landmarker_model()
+    options = mp.tasks.vision.HandLandmarkerOptions(
+        base_options=mp.tasks.BaseOptions(model_asset_path=model_path),
+        running_mode=mp.tasks.vision.RunningMode.VIDEO,
+        num_hands=1,
+        min_hand_detection_confidence=0.6,
+        min_tracking_confidence=0.5,
+    )
+
     cap = cv2.VideoCapture(CAMERA_INDEX)
     if not cap.isOpened():
         print(f"[ERROR] Cannot open camera index {CAMERA_INDEX}. "
               "Try changing CAMERA_INDEX at the top of this script.")
         sys.exit(1)
 
-    with mp_hands.Hands(
-        static_image_mode=False,
-        max_num_hands=1,
-        min_detection_confidence=0.6,
-        min_tracking_confidence=0.5,
-    ) as hands:
+    with mp.tasks.vision.HandLandmarker.create_from_options(options) as hand_landmarker:
         skipping = start_letter is not None
 
         for letter in LETTERS:
@@ -241,7 +305,7 @@ def main():
             if not show_countdown(cap, letter):
                 break
 
-            if not collect_letter(cap, hands, letter, out_dir, SAMPLES_PER_LETTER):
+            if not collect_letter(cap, hand_landmarker, letter, out_dir, SAMPLES_PER_LETTER):
                 break
 
     cap.release()

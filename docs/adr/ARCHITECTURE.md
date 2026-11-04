@@ -7,54 +7,44 @@ tags: [architecture, computer-vision, machine-learning, libras]
 edges:
   - relation: references
     target: "adr:tests"
-updated: 2026-09-10
+updated: 2026-11-04
 ---
 # Project Architecture
 
 ## OVERVIEW
 
-Flat-script pipeline for real-time LIBRAS static alphabet recognition. Phase A uses MediaPipe hand landmarks fed into an SVM classifier. Phase C fine-tunes EfficientNet-B0 on hand-crop images. Input is live webcam; output is predicted letter with confidence overlay.
+Current repository implements guided MediaPipe capture, Phase A RBF-SVM training, and local webcam inference through `demo.py`. Phase C EfficientNet training remains planned.
 
 ## FOLDER STRUCTURE
 
 ```
 libras-cv/
-├── collect_data.py        # Guided webcam data-collection entrypoint
-├── demo.py                # Live inference entrypoint (Phase A + C)
-├── requirements.txt       # Pinned dependency manifest
-├── data/
-│   ├── cnn-libras/        # Kaggle dataset (gitignored, 21 static classes)
-│   └── personal/          # Self-recorded samples per letter (gitignored)
-├── models/                # Serialized SVM (.pkl) and CNN weights (.pt) — gitignored
-├── notebooks/             # Jupyter notebooks for training pipelines
-│   ├── 01_exploration.ipynb
-│   ├── 02_landmarks_svm.ipynb
-│   └── 03_cnn_efficientnet.ipynb
-├── scripts/               # Utility scripts (graph generation, etc.)
-├── docs/
-│   ├── adr/               # Architecture Decision Records
-│   └── feature/           # Feature-level documentation
-└── src/                   # Shared helper modules (landmark utils, augmentation)
+├── collect_data.py        # Implemented webcam collection entrypoint
+├── requirements.txt       # Python dependency manifest
+├── data/                  # Local ignored datasets and personal crops; do not track
+├── models/                # Local ignored model artifacts; do not track
+├── scripts/               # Add one-off developer utilities here
+├── src/                   # Add shared feature extraction and model utilities here
+├── notebooks/             # Add training and evaluation experiments here
+└── docs/                  # Add project memory under adr/ or feature/
 ```
 
 ## LAYERS
 
-- **Data layer** (`data/`): Raw images and personal recordings. PROHIBITED: committing image data to git.
-- **Collection layer** (`collect_data.py`): Webcam capture with MediaPipe overlay. Saves hand-crop JPEGs.
-- **Training layer** (`notebooks/`): Landmark extraction, SVM fitting, EfficientNet fine-tuning. Run 02 locally; run 03 on Colab.
-- **Inference layer** (`demo.py`): Loads saved model, runs MediaPipe, renders OpenCV HUD with top-3 predictions.
-- **Shared utilities** (`src/`): Landmark normalization, augmentation helpers, dataset loaders.
+- **Data layer** (`data/`): Local datasets, crop JPEGs, and landmark sidecars. PROHIBITED: committing image data to git.
+- **Collection layer** (`collect_data.py`): Implemented MediaPipe Tasks capture. Saves a clean hand crop and paired raw landmark JSON.
+- **Training layer** (`src/`, `notebooks/`): Phase A landmark extraction, wrist normalization, stratified SVM evaluation, and model saving implemented. Phase C EfficientNet training remains planned.
+- **Inference layer** (`demo.py`): Implemented local CPU inference; uses wrist-normalized MediaPipe landmarks and the saved RBF-SVM artifact.
+- **Shared utilities** (`src/`): Landmark sidecar handling, wrist normalization, dataset loading, SVM evaluation, and serialization.
 
 ## MODULES
 
-| Module | Responsibility | Location |
+| Module | Responsibility | Location and status |
 |---|---|---|
-| collect_data | Webcam-guided data collection, hand-crop saving | `collect_data.py` |
-| demo | Live real-time inference, OpenCV HUD rendering | `demo.py` |
-| exploration | EDA, class distribution, sample visualization | `notebooks/01_exploration.ipynb` |
-| landmarks_svm | MediaPipe landmark extraction, wrist normalization, SVM training | `notebooks/02_landmarks_svm.ipynb` |
-| cnn_efficientnet | EfficientNet-B0 fine-tuning, data augmentation, evaluation | `notebooks/03_cnn_efficientnet.ipynb` |
-| src utilities | Shared landmark utils, normalization, augmentation | `src/` |
+| collect_data | Webcam-guided crop collection | `collect_data.py` — implemented |
+| landmarks_svm | Landmark extraction, wrist normalization, SVM training | `src/landmark_svm.py`, `notebooks/02_landmarks_svm.ipynb` — implemented |
+| cnn_efficientnet | EfficientNet fine-tuning and evaluation | `notebooks/03_cnn_efficientnet.ipynb` — planned, absent |
+| demo | Live inference and OpenCV HUD | `demo.py` — implemented |
 
 ## PATTERNS
 
@@ -80,12 +70,12 @@ cv2.imwrite(save_path, frame)
 
 | External Service / Component | Purpose | Connection / Authentication Method |
 |---|---|---|
-| MediaPipe Hands | Hand detection + 21-point 3D landmark extraction | Local Python package (`mediapipe>=0.10.0`) |
-| Kaggle API | Download `cnn-libras` dataset | `~/.kaggle/kaggle.json` API key |
-| Google Colab | GPU training for EfficientNet-B0 (Phase C) | Upload notebook; T4 runtime |
+| MediaPipe Tasks Hand Landmarker | Hand detection + 21-point 3D landmark extraction | IMAGE mode for extraction and VIDEO mode for webcam inference; model cached in `~/.cache/libras-recognition/` |
+| Kaggle CLI | Download `cnn-libras` dataset | Command documented in README; no project loader is present |
+| Google Colab | Planned GPU training for EfficientNet-B0 (Phase C) | Colab T4; training notebook absent |
 | OpenCV VideoCapture | Webcam frame read + HUD rendering | Device index (`CAMERA_INDEX=0`) |
-| scikit-learn SVM | RBF-kernel SVM classifier on landmark vectors | Local; model serialized to `models/svm_model.pkl` |
-| PyTorch / torchvision | EfficientNet-B0 fine-tuning | Local CPU / Colab T4; weights saved to `models/efficientnet_libras.pt` |
+| scikit-learn SVM | RBF classifier on wrist-relative landmark vectors | Local training utility; model saved to ignored `models/svm_model.pkl` |
+| PyTorch / torchvision | Planned EfficientNet-B0 fine-tuning | Dependencies declared; train on Colab T4; notebook and weights absent |
 
 <!-- DOCUMENT MAP: omitted — this baseline ADR has exactly 1 edge. The ## REFERENCES section below carries the relation. -->
 
